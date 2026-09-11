@@ -1,0 +1,17 @@
+# Local editor and operating-system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local test artifacts
+.tmp/
+tmp/
+coverage/
+
+# Never commit real local application configuration if a consumer copies it here.
+.env.local
+.env.*.local
+!.env.local.example

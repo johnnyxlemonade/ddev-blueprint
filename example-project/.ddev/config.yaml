@@ -1,0 +1,34 @@
+# Example DDEV project with common development features.
+name: example-project
+type: php
+
+# Public document root for the project.
+docroot: public
+
+# The PHP version is isolated to this project.
+php_version: "8.4"
+
+# Apache-FPM is suitable for projects that use .htaccess.
+webserver_type: apache-fpm
+
+# Project-local DDEV database. Data remains in the Docker volume after ddev stop.
+database:
+  type: mariadb
+  version: "11.8"
+
+# Fixed port for convenient connections from HeidiSQL/DBeaver on 127.0.0.1:3307.
+host_db_port: "3307"
+
+# Additional hostnames automatically receive the .ddev.site suffix and local HTTPS.
+additional_hostnames:
+  - "admin.example-project"
+  - "api.example-project"
+
+# Common PHP extensions are installed from Debian packages into the web image.
+webimage_extra_packages:
+  - php${DDEV_PHP_VERSION}-imagick
+  - php${DDEV_PHP_VERSION}-imap
+
+# Non-sensitive local environment values can be defined here.
+web_environment:
+  - APP_ENV=development

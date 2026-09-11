@@ -1,0 +1,8 @@
+# Keep local application configuration out of version control.
+.env.local
+
+# Common runtime data.
+var/
+tmp/
+cache/
+logs/

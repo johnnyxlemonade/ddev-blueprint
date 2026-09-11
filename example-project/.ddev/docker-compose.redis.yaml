@@ -1,0 +1,14 @@
+# Redis belongs only to this project and is available as redis:6379.
+services:
+  redis:
+    container_name: "ddev-${DDEV_SITENAME}-redis"
+    image: redis:7.4-alpine
+    restart: "no"
+    expose:
+      - "6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  # The named volume preserves Redis data after the project is stopped.
+  redis-data:

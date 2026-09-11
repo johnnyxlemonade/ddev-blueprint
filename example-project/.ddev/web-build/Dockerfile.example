@@ -1,0 +1,12 @@
+# This file is only an example for unusual PHP extensions.
+# Do not rename it to Dockerfile without reviewing the requirements of the project.
+# DDEV supports common extensions through webimage_extra_packages, which is preferred.
+
+# Example approach:
+# RUN sudo apt-get update \
+#     && sudo apt-get install -y build-essential php${DDEV_PHP_VERSION}-dev php-pear \
+#     && sudo pecl install example-extension \
+#     && sudo bash -c 'echo "extension=example-extension.so" > /etc/php/${DDEV_PHP_VERSION}/mods-available/example-extension.ini' \
+#     && sudo phpenmod example-extension \
+#     && sudo apt-get clean \
+#     && sudo rm -rf /var/lib/apt/lists/*

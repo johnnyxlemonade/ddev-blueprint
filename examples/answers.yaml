@@ -1,0 +1,37 @@
+# Complete non-interactive DDEV Blueprint configuration. This file contains no secrets.
+project:
+  name: my-app
+  docroot: public
+  php: "8.4"
+  webserver: apache-fpm
+
+database:
+  type: mariadb
+  version: "11.8"
+  host_port: null
+
+hostnames:
+  additional:
+    - docs
+  fqdns:
+    - api.example.test
+
+services:
+  redis:
+    enabled: true
+    image: redis:7.4-alpine
+  opentelemetry:
+    enabled: false
+
+php:
+  extensions:
+    - intl
+    - gd
+    - redis
+  development_settings: true
+
+development:
+  tools: true
+  makefile: true
+  editorconfig: true
+  env_example: true

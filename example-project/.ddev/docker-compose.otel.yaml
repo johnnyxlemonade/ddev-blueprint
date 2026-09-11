@@ -1,0 +1,14 @@
+# Local OpenTelemetry Collector for traces, metrics, and logs.
+# PHP instrumentation must be configured separately in the application.
+services:
+  otel-collector:
+    container_name: "ddev-${DDEV_SITENAME}-otel-collector"
+    image: otel/opentelemetry-collector-contrib:0.160.0
+    restart: "no"
+    command:
+      - --config=/etc/otelcol-contrib/config.yaml
+    expose:
+      - "4317"
+      - "4318"
+    volumes:
+      - ./otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro

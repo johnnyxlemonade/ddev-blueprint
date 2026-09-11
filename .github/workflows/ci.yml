@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+
+      - name: Bash syntax check
+        run: bash -n init-project.sh tests/run.sh
+
+      - name: ShellCheck
+        run: shellcheck --severity=warning init-project.sh tests/run.sh
+
+      - name: Install DDEV
+        run: curl --fail --show-error --silent --location https://ddev.com/install.sh | bash -s v1.25.4
+
+      - name: Run test suite
+        run: ./tests/run.sh
