@@ -146,7 +146,8 @@ development: { tools: true, makefile: true, editorconfig: true, env_example: tru
 
 `database.version` and `database.host_port` may be `null` when `database.type`
 is `none`. A Redis image is required when Redis is enabled and must use the
-`redis:<tag>` form. Answers files are configuration, not secret stores: never
+`redis:<tag>` form; `default` resolves to the generator's default Redis tag.
+Answers files are configuration, not secret stores: never
 put passwords, tokens, or production credentials in them.
 
 ## Testing

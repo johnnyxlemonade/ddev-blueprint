@@ -164,7 +164,7 @@ assert_contains "$WORK/dry.out" 'Makefile'
 assert_contains "$WORK/dry.out" '.editorconfig'
 ok 'dry-run writes nothing and reports the plan'
 
-[[ "$("$GENERATOR" --version)" == "0.1.0" ]] || fail 'version output is incorrect'
+[[ "$("$GENERATOR" --version)" == "0.1.1" ]] || fail 'version output is incorrect'
 "$GENERATOR" --help >"$WORK/help.out"
 assert_contains "$WORK/help.out" 'Supported PHP: 8.0, 8.1, 8.2, 8.3, 8.4, 8.5 (default: 8.4).'
 assert_contains "$WORK/help.out" '--answers FILE'
@@ -204,6 +204,31 @@ interactive_equivalent="$WORK/interactive-equivalent"
 printf '%s\n' my-app public 8.4 apache-fpm mariadb 11.8 '' 'docs,api.example.test' y y 7.4-alpine 'intl,gd,redis' n y y y y | run_generator "$interactive_equivalent" "$WORK/interactive-equivalent.out"
 cmp "$answers_target/.ddev/config.yaml" "$interactive_equivalent/.ddev/config.yaml" >/dev/null || fail 'answers config must match equivalent interactive input'
 ok 'answers and interactive modes share generated configuration'
+
+redis_empty_target="$WORK/redis-empty"
+printf '%s\n' redis-empty public 8.4 apache-fpm none '' y y '' 'intl,gd' n y y y y | run_generator "$redis_empty_target" "$WORK/redis-empty.out"
+assert_contains "$redis_empty_target/.ddev/docker-compose.redis.yaml" 'image: "redis:7.4-alpine"'
+assert_contains "$WORK/redis-empty.out" 'Redis .............. redis:7.4-alpine'
+ok 'empty Redis tag resolves to the default tag'
+
+redis_default_target="$WORK/redis-default"
+printf '%s\n' redis-default public 8.4 apache-fpm none '' y y default 'intl,gd' n y y y y | run_generator "$redis_default_target" "$WORK/redis-default.out"
+assert_contains "$redis_default_target/.ddev/docker-compose.redis.yaml" 'image: "redis:7.4-alpine"'
+assert_contains "$WORK/redis-default.out" 'Redis .............. redis:7.4-alpine'
+ok 'literal default Redis tag resolves to the default tag'
+
+redis_custom_target="$WORK/redis-custom"
+printf '%s\n' redis-custom public 8.4 apache-fpm none '' y y 7.2-alpine 'intl,gd' n y y y y | run_generator "$redis_custom_target" "$WORK/redis-custom.out"
+assert_contains "$redis_custom_target/.ddev/docker-compose.redis.yaml" 'image: "redis:7.2-alpine"'
+assert_contains "$WORK/redis-custom.out" 'Redis .............. redis:7.2-alpine'
+ok 'custom Redis tag is preserved'
+
+answers_redis_default="$WORK/answers-redis-default.yaml"
+sed 's/image: redis:7.4-alpine/image: default/' "$answers_file" > "$answers_redis_default"
+env PATH="$FAKE_BIN:$PATH" "$GENERATOR" --answers "$answers_redis_default" "$WORK/answers-redis-default" >"$WORK/answers-redis-default.out"
+assert_contains "$WORK/answers-redis-default/.ddev/docker-compose.redis.yaml" 'image: "redis:7.4-alpine"'
+assert_contains "$WORK/answers-redis-default.out" 'Redis .............. redis:7.4-alpine'
+ok 'answers default Redis image resolves to the default tag'
 
 missing_answers="$WORK/missing.yaml"
 sed '/  php: "8.4"/d' "$answers_file" > "$missing_answers"

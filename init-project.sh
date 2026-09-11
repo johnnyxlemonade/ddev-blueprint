@@ -95,6 +95,12 @@ valid_db_type() { [[ "$1" =~ ^(mariadb|mysql|postgres|none)$ ]]; }
 valid_version() { [[ "$1" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; }
 valid_port() { [[ "$1" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$1 <= 65535 )); }
 valid_redis_tag() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; }
+normalize_redis_tag() {
+  local tag="$1"
+  [[ -z "$tag" || "$tag" == default ]] && tag="$DEFAULT_REDIS_TAG"
+  valid_redis_tag "$tag" || return 1
+  printf '%s' "$tag"
+}
 load_answers() {
   [[ -f "$ANSWERS_FILE" ]] || die "Answers file not found: $ANSWERS_FILE"
   command -v python3 >/dev/null 2>&1 || die "Answers mode requires Python 3 with PyYAML."
@@ -362,12 +368,17 @@ answer_or_prompt_yes_no services.redis.enabled 'Add Redis service?' N; ENABLE_RE
 if [[ "$ENABLE_REDIS_SERVICE" == y ]]; then
   if "$ANSWERS_MODE"; then
     REDIS_IMAGE="${ANSWERS[services.redis.image]}"
-    [[ "$REDIS_IMAGE" == redis:* ]] || die 'Invalid answer value: services.redis.image'
-    REDIS_TAG="${REDIS_IMAGE#redis:}"
-    valid_redis_tag "$REDIS_TAG" || die 'Invalid answer value: services.redis.image'
+    if [[ "$REDIS_IMAGE" == default ]]; then
+      REDIS_TAG=default
+    elif [[ "$REDIS_IMAGE" == redis:* ]]; then
+      REDIS_TAG="${REDIS_IMAGE#redis:}"
+    else
+      die 'Invalid answer value: services.redis.image'
+    fi
   else
     prompt_value 'Redis image tag' "$DEFAULT_REDIS_TAG" valid_redis_tag; REDIS_TAG="$ANSWER"
   fi
+  REDIS_TAG="$(normalize_redis_tag "$REDIS_TAG")" || die 'Invalid answer value: services.redis.image'
 fi
 
 PACKAGES=(); EXTENSIONS=()
@@ -567,7 +578,7 @@ if [[ "$ENABLE_ENV_TEMPLATE" == y && -e "$TARGET_DIR/.env.local.example" && ! "$
 printf '\nDevelopment:\n  Standard tools ..... %s\n  OPcache ............ %s\n  Xdebug ............. disabled\n  Makefile ........... %s\n  .editorconfig ...... %s\n  Env example ........ %s\n' "$([[ "$ENABLE_DEV_TOOLS" == y ]] && printf enabled || printf disabled)" "$([[ "$ENABLE_PHP_SETTINGS" == y ]] && printf enabled || printf disabled)" "$MAKEFILE_STATUS" "$EDITORCONFIG_STATUS" "$ENV_STATUS"
 if [[ "$ENABLE_REDIS_SERVICE" == y || "$ENABLE_OTEL" == y ]]; then
   printf '\nServices:\n'
-  if [[ "$ENABLE_REDIS_SERVICE" == y ]]; then printf '  Redis .............. enabled\n'; fi
+  if [[ "$ENABLE_REDIS_SERVICE" == y ]]; then printf '  Redis .............. redis:%s\n' "$REDIS_TAG"; fi
   if [[ "$ENABLE_OTEL" == y ]]; then printf '  OpenTelemetry ...... enabled\n'; fi
 fi
 if (( ${#GENERATED[@]} )); then printf '\nGenerated:\n'; printf '  %s\n' "${GENERATED[@]}"; fi
