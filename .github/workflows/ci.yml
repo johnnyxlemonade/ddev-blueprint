@@ -20,10 +20,10 @@ jobs:
           sudo apt-get install --yes shellcheck
 
       - name: Bash syntax check
-        run: bash -n init-project.sh tests/run.sh
+        run: bash -n init-project.sh lib/*.sh tests/run.sh
 
       - name: ShellCheck
-        run: shellcheck --severity=warning init-project.sh tests/run.sh
+        run: shellcheck -x --severity=warning init-project.sh tests/run.sh
 
       - name: Set up DDEV
         uses: ddev/github-action-setup-ddev@v1
