@@ -7,7 +7,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/ddev-blueprint-tests.XXXXXX")"
 FAKE_BIN="$WORK/bin"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$FAKE_BIN"
-printf '%s\n' '#!/usr/bin/env sh' 'last=""' 'for arg in "$@"; do last="$arg"; done' 'grep -q ""build"" "$last"' > "$FAKE_BIN/jq"
+printf '%s\n' '#!/usr/bin/env sh' 'last=""' "for arg in \"\$@\"; do last=\"\$arg\"; done" "grep -q \"\"build\"\" \"\$last\"" > "$FAKE_BIN/jq"
 chmod +x "$FAKE_BIN/jq"
 printf '%s\n' '#!/usr/bin/env sh' 'exit 0' > "$FAKE_BIN/make"
 chmod +x "$FAKE_BIN/make"
@@ -21,7 +21,7 @@ assert_contains() { grep -Fq -- "$2" "$1" || fail "expected $2 in $1"; }
 assert_not_contains() { ! grep -Fq -- "$2" "$1" || fail "did not expect $2 in $1"; }
 run_generator() { local target="$1" output="$2"; env PATH="$FAKE_BIN:$PATH" "$GENERATOR" "$target" >"$output"; }
 NO_MAKE_ENV="$WORK/no-host-make.bash"
-printf '%s\n' 'command() {' '  if [[ "$1" == -v && "$2" == make ]]; then return 1; fi' '  builtin command "$@"' '}' > "$NO_MAKE_ENV"
+printf '%s\n' 'command() {' "  if [[ \"\$1\" == -v && \"\$2\" == make ]]; then return 1; fi" "  builtin command \"\$@\"" '}' > "$NO_MAKE_ENV"
 run_generator_without_make() { local target="$1" output="$2"; env BASH_ENV="$NO_MAKE_ENV" PATH="$FAKE_BIN:$PATH" "$GENERATOR" "$target" >"$output"; }
 validate_yaml() {
   local target="$1"
@@ -38,7 +38,52 @@ answers_none() {
   printf '%s\n' "$1" public 8.4 apache-fpm none "" y n "" n y y y y
 }
 
+# Source the same modules as the interactive path to check matrix membership
+# without duplicating its supported-version lists in this test.
+SCRIPT_DIR="$ROOT"
+# shellcheck source=lib/defaults.sh
+source "$ROOT/lib/defaults.sh"
+# shellcheck source=lib/capabilities.sh
+source "$ROOT/lib/capabilities.sh"
+# shellcheck source=lib/validators.sh
+source "$ROOT/lib/validators.sh"
+
+assert_db_capability_matrix() {
+  local database_type version answers_path target
+  for database_type in mariadb mysql postgres; do
+    while IFS= read -r version; do
+      bp_capability_supports_database_version "$database_type" "$version" || fail "undeclared DB capability: $database_type:$version"
+      DB_TYPE="$database_type" bp_valid_db_version "$version" || fail "interactive DB validator rejected: $database_type:$version"
+      answers_path="$WORK/answers-$database_type-$version.yaml"
+      sed -e "s/type: mariadb/type: $database_type/" -e "s/version: \"11.8\"/version: \"$version\"/" "$answers_file" > "$answers_path"
+      target="$WORK/answers-$database_type-$version"
+      env PATH="$FAKE_BIN:$PATH" "$GENERATOR" --dry-run --answers "$answers_path" "$target" >"$WORK/answers-$database_type-$version.out"
+      assert_absent "$target"
+    done < <(bp_capability_database_versions "$database_type")
+    bp_capability_supports_database_version "$database_type" "${BP_DEFAULT_DATABASE_VERSIONS[$database_type]}" || fail "default DB version is unsupported: $database_type"
+  done
+
+  for pair in 'mariadb 10.9' 'mysql 99.99' 'postgres 99' 'mariadb 8.0' 'mysql 11.8' 'postgres 17.1' 'postgres invalid'; do
+    read -r database_type version <<< "$pair"
+    if bp_capability_supports_database_version "$database_type" "$version"; then fail "unsupported DB version accepted: $database_type:$version"; fi
+    if DB_TYPE="$database_type" bp_valid_db_version "$version"; then fail "interactive DB validator accepted: $database_type:$version"; fi
+  done
+  bp_capability_database_uses_version none && fail 'database=none must not use a DB version'
+  if bp_capability_database_versions none >/dev/null; then fail 'database=none must not declare DB versions'; fi
+}
+
+assert_redis_capability_matrix() {
+  local tag
+  while IFS= read -r tag; do
+    bp_capability_supports_redis_tag "$tag" || fail "undeclared Redis capability: $tag"
+    [[ "$(bp_redis_tag_classification "$tag")" == supported ]] || fail "Redis tag not classified supported: $tag"
+  done < <(bp_capability_redis_tags)
+  bp_capability_supports_redis_tag "$DEFAULT_REDIS_TAG" || fail 'default Redis tag is unsupported'
+  [[ "$(bp_redis_tag_classification '8.10.1-alpine3.23')" == 'custom override' ]] || fail 'custom Redis tag classification is incorrect'
+}
+
 # The generator has no mandatory host-tool preflight dependency.
+assert_redis_capability_matrix
 preflight_target="$WORK/preflight"
 printf '%s\n' preflight-app public 8.4 apache-fpm mariadb 11.8 '' '' y n '' n y y n y y | env PATH="/usr/bin:/bin" "$GENERATOR" --dry-run "$preflight_target" >"$WORK/preflight.out"
 assert_contains "$WORK/preflight.out" 'DDEV Blueprint dry run completed'
@@ -61,8 +106,8 @@ assert_contains "$WORK/default.out" 'OPcache ............ enabled'
 assert_contains "$WORK/default.out" 'PHP extensions:'
 assert_contains "$WORK/default.out" 'intl, gd, mysqli, pdo_mysql'
 assert_not_contains "$WORK/default.out" 'Skipped:'
-assert_contains "$default_target/.ddev/config.yaml" 'php${DDEV_PHP_VERSION}-intl'
-assert_contains "$default_target/.ddev/config.yaml" 'php${DDEV_PHP_VERSION}-gd'
+assert_contains "$default_target/.ddev/config.yaml" "php\${DDEV_PHP_VERSION}-intl"
+assert_contains "$default_target/.ddev/config.yaml" "php\${DDEV_PHP_VERSION}-gd"
 validate_yaml "$default_target"
 ok 'default developer tooling, PHP settings, generated files, summary and YAML'
 
@@ -79,22 +124,22 @@ ok 'developer tools and optional generated files can be disabled'
 no_host_make_target="$WORK/no-host-make"
 printf '%s\n' no-host-make public 8.4 apache-fpm none '' y n none n y y n y y | env BASH_ENV="$NO_MAKE_ENV" PATH="$FAKE_BIN:$PATH" "$GENERATOR" "$no_host_make_target" >"$WORK/no-host-make.out" 2>&1
 assert_absent "$no_host_make_target/Makefile"
-assert_contains "$WORK/no-host-make.out" 'Host `make` is not installed.'
-assert_contains "$WORK/no-host-make.out" 'Makefile ............ host `make` not available'
+assert_contains "$WORK/no-host-make.out" "Host \`make\` is not installed."
+assert_contains "$WORK/no-host-make.out" "Makefile ............ host \`make\` not available"
 assert_contains "$WORK/no-host-make.out" 'Makefile ........... skipped'
 ok 'interactive mode skips Makefile when host make is unavailable and declined'
 
 no_host_make_dry_target="$WORK/no-host-make-dry"
 printf '%s\n' no-host-make-dry public 8.4 apache-fpm none '' y n none n y y n y y | env BASH_ENV="$NO_MAKE_ENV" PATH="$FAKE_BIN:$PATH" "$GENERATOR" --dry-run "$no_host_make_dry_target" >"$WORK/no-host-make-dry.out" 2>&1
 assert_absent "$no_host_make_dry_target"
-assert_contains "$WORK/no-host-make-dry.out" 'Host `make` is not installed.'
+assert_contains "$WORK/no-host-make-dry.out" "Host \`make\` is not installed."
 assert_contains "$WORK/no-host-make-dry.out" 'No files were written.'
 ok 'interactive dry-run applies the host make decision'
 
 extensions_target="$WORK/extensions"
 printf '%s\n' extensions public 8.5 nginx-fpm none "" n n 'redis, apcu, memcached, gd, imagick, imap, intl, soap, bcmath, gmp, pcntl, exif, ldap, xsl, tidy, snmp' n y n n n | run_generator "$extensions_target" "$WORK/extensions.out"
 for extension in redis apcu memcached gd imagick imap intl soap bcmath gmp ldap tidy snmp; do assert_contains "$extensions_target/.ddev/config.yaml" "php\${DDEV_PHP_VERSION}-$extension"; done
-assert_contains "$extensions_target/.ddev/config.yaml" 'php${DDEV_PHP_VERSION}-xml'
+assert_contains "$extensions_target/.ddev/config.yaml" "php\${DDEV_PHP_VERSION}-xml"
 assert_contains "$WORK/extensions.out" 'PHP ................ 8.5'
 assert_contains "$WORK/extensions.out" 'redis, apcu, memcached, gd, imagick, imap, intl, soap, bcmath, gmp, pcntl, exif, ldap, xsl, tidy, snmp'
 validate_yaml "$extensions_target"
@@ -109,7 +154,7 @@ ok 'custom extensions trim whitespace and remove duplicates'
 none_extensions_target="$WORK/none-extensions"
 printf '%s\n' none-extensions public 8.4 apache-fpm none "" n n none n n n n n | run_generator "$none_extensions_target" "$WORK/none-extensions.out"
 if grep -Fq 'PHP extensions:' "$WORK/none-extensions.out"; then fail 'none must not report an extension section'; fi
-if grep -Fq 'php${DDEV_PHP_VERSION}-' "$none_extensions_target/.ddev/config.yaml"; then fail 'none must not add optional PHP packages'; fi
+if grep -Fq "php\${DDEV_PHP_VERSION}-" "$none_extensions_target/.ddev/config.yaml"; then fail 'none must not add optional PHP packages'; fi
 ok 'none disables optional PHP extensions'
 
 invalid_extensions_target="$WORK/invalid-extensions"
@@ -123,13 +168,13 @@ ok 'unknown PHP extension is rejected'
 mysql_extensions_target="$WORK/mysql-extensions"
 printf '%s\n' mysql-extensions public 8.4 apache-fpm mysql 8.4 "" "" n n none n n n n n | run_generator "$mysql_extensions_target" "$WORK/mysql-extensions.out"
 assert_contains "$WORK/mysql-extensions.out" 'mysqli, pdo_mysql'
-if grep -Fq 'php${DDEV_PHP_VERSION}-mysqli' "$mysql_extensions_target/.ddev/config.yaml"; then fail 'MySQL drivers must not be manually packaged'; fi
+if grep -Fq "php\${DDEV_PHP_VERSION}-mysqli" "$mysql_extensions_target/.ddev/config.yaml"; then fail 'MySQL drivers must not be manually packaged'; fi
 ok 'MySQL database extensions are automatic'
 
 postgres_extensions_target="$WORK/postgres-extensions"
 printf '%s\n' postgres-extensions public 8.4 apache-fpm postgres 17 "" "" n n none n n n n n | run_generator "$postgres_extensions_target" "$WORK/postgres-extensions.out"
 assert_contains "$WORK/postgres-extensions.out" 'pgsql, pdo_pgsql'
-if grep -Fq 'php${DDEV_PHP_VERSION}-pgsql' "$postgres_extensions_target/.ddev/config.yaml"; then fail 'PostgreSQL drivers must not be manually packaged'; fi
+if grep -Fq "php\${DDEV_PHP_VERSION}-pgsql" "$postgres_extensions_target/.ddev/config.yaml"; then fail 'PostgreSQL drivers must not be manually packaged'; fi
 ok 'PostgreSQL database extensions are automatic'
 
 conditional_target="$WORK/conditional"; mkdir -p "$conditional_target/vendor/bin" "$conditional_target/bin"
@@ -173,6 +218,7 @@ ok 'version and help output'
 
 answers_file="$WORK/answers.yaml"
 cp "$ROOT/examples/answers.yaml" "$answers_file"
+assert_db_capability_matrix
 answers_target="$WORK/answers"
 env PATH="$FAKE_BIN:$PATH" "$GENERATOR" --answers "$answers_file" "$answers_target" >"$WORK/answers.out"
 assert_not_contains "$WORK/answers.out" 'DDEV project name'
@@ -182,10 +228,10 @@ assert_contains "$WORK/answers.out" 'FQDNs .............. api.example.test'
 assert_file "$answers_target/.ddev/docker-compose.redis.yaml"
 assert_absent "$answers_target/.ddev/docker-compose.otel.yaml"
 validate_yaml "$answers_target"
-ok 'complete answers file is non-interactive and generates selected services'
+ok 'complete answers file and every declared DB version are non-interactive and valid'
 
 if env BASH_ENV="$NO_MAKE_ENV" PATH="$FAKE_BIN:$PATH" "$GENERATOR" --answers "$answers_file" "$WORK/answers-no-host-make" >"$WORK/answers-no-host-make.out" 2>&1; then fail 'answers makefile=true must fail without host make'; fi
-assert_contains "$WORK/answers-no-host-make.out" 'development.makefile=true requires host command `make`'
+assert_contains "$WORK/answers-no-host-make.out" "development.makefile=true requires host command \`make\`"
 ok 'answers makefile=true fails without host make'
 
 answers_no_make_file="$WORK/answers-no-make.yaml"
@@ -196,7 +242,7 @@ assert_contains "$WORK/answers-no-make.out" 'Makefile ........... disabled'
 ok 'answers makefile=false does not require host make'
 
 if env BASH_ENV="$NO_MAKE_ENV" PATH="$FAKE_BIN:$PATH" "$GENERATOR" --dry-run --answers "$answers_file" "$WORK/answers-no-host-make-dry" >"$WORK/answers-no-host-make-dry.out" 2>&1; then fail 'answers dry-run makefile=true must fail without host make'; fi
-assert_contains "$WORK/answers-no-host-make-dry.out" 'development.makefile=true requires host command `make`'
+assert_contains "$WORK/answers-no-host-make-dry.out" "development.makefile=true requires host command \`make\`"
 assert_absent "$WORK/answers-no-host-make-dry"
 ok 'answers dry-run consistently requires host make'
 
@@ -240,7 +286,12 @@ invalid_answers="$WORK/invalid.yaml"
 sed 's/php: "8.4"/php: "8.6"/' "$answers_file" > "$invalid_answers"
 if env PATH="$FAKE_BIN:$PATH" "$GENERATOR" --answers "$invalid_answers" "$WORK/invalid" >"$WORK/invalid.out" 2>&1; then fail 'invalid answer must fail'; fi
 assert_contains "$WORK/invalid.out" 'ERROR: Invalid answer value: project.php'
-ok 'invalid answers use interactive validators'
+unsupported_db_answers="$WORK/unsupported-db.yaml"
+sed 's/version: "11.8"/version: "99.99"/' "$answers_file" > "$unsupported_db_answers"
+if env PATH="$FAKE_BIN:$PATH" "$GENERATOR" --answers "$unsupported_db_answers" "$WORK/unsupported-db" >"$WORK/unsupported-db.out" 2>&1; then fail 'unsupported DB version must fail'; fi
+assert_contains "$WORK/unsupported-db.out" 'ERROR: Invalid answer value: database.version'
+assert_absent "$WORK/unsupported-db"
+ok 'invalid answers use interactive validators, including DB capabilities'
 
 invalid_hostname_answers="$WORK/invalid-hostname.yaml"
 sed 's/    - docs/    - invalid_host/' "$answers_file" > "$invalid_hostname_answers"
