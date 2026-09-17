@@ -3,7 +3,7 @@
 bp_valid_project_name() { [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]; }
 bp_valid_php_version() { bp_capability_supports_php_version "$1"; }
 bp_valid_webserver() { bp_capability_supports_webserver "$1"; }
-bp_valid_docroot() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*([/][A-Za-z0-9][A-Za-z0-9._-]*)*$ ]]; }
+bp_valid_docroot() { [[ "$1" == . || "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*([/][A-Za-z0-9][A-Za-z0-9._-]*)*$ ]]; }
 bp_valid_db_type() { bp_capability_supports_database "$1"; }
 bp_valid_db_version() { bp_capability_supports_database_version "$DB_TYPE" "$1"; }
 bp_valid_version() { [[ "$1" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; }

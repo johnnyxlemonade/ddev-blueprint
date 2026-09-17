@@ -7,6 +7,7 @@ bp_configure_project_identity() {
   PROJECT_NAME="$ANSWER"
   bp_answer_or_prompt_value project.docroot 'Document root' "$DEFAULT_DOCROOT" bp_valid_docroot
   DOCROOT="$ANSWER"
+  [[ "$DOCROOT" == . ]] && DOCROOT=""
   bp_answer_or_prompt_value project.php 'PHP version' "$DEFAULT_PHP_VERSION" bp_valid_php_version
   PHP_VERSION="$ANSWER"
   bp_answer_or_prompt_value project.webserver 'Webserver (apache-fpm/nginx-fpm)' "$DEFAULT_WEBSERVER" bp_valid_webserver

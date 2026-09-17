@@ -11,6 +11,8 @@ printf '%s\n' '#!/usr/bin/env sh' 'last=""' "for arg in \"\$@\"; do last=\"\$arg
 chmod +x "$FAKE_BIN/jq"
 printf '%s\n' '#!/usr/bin/env sh' 'exit 0' > "$FAKE_BIN/make"
 chmod +x "$FAKE_BIN/make"
+printf '%s\n' '#!/usr/bin/env sh' 'if [ "${BP_TEST_OCCUPIED_PORT:-}" = 43000 ]; then case "$*" in *43000*) printf "%s\\n" "LISTEN 0 1 127.0.0.1:43000" ;; esac; fi' > "$FAKE_BIN/ss"
+chmod +x "$FAKE_BIN/ss"
 
 pass=0
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
@@ -32,10 +34,13 @@ validate_yaml() {
   done
 }
 answers_default() {
-  printf '%s\n' "$1" public 8.4 apache-fpm mariadb 11.8 "" "" y n "" n y y y y
+  printf '%s\n' "$1" public 8.4 apache-fpm mariadb 11.8 y "" "" y n "" n y y y y
 }
 answers_none() {
   printf '%s\n' "$1" public 8.4 apache-fpm none "" y n "" n y y y y
+}
+answers_none_docroot() {
+  printf '%s\n' "$1" "$2" 8.4 apache-fpm none "" y n "" n y y y y
 }
 
 # Source the same modules as the interactive path to check matrix membership
@@ -47,6 +52,8 @@ source "$ROOT/lib/defaults.sh"
 source "$ROOT/lib/capabilities.sh"
 # shellcheck source=lib/validators.sh
 source "$ROOT/lib/validators.sh"
+# shellcheck source=lib/input.sh
+source "$ROOT/lib/input.sh"
 
 assert_db_capability_matrix() {
   local database_type version answers_path target
@@ -82,15 +89,30 @@ assert_redis_capability_matrix() {
   [[ "$(bp_redis_tag_classification '8.10.1-alpine3.23')" == 'custom override' ]] || fail 'custom Redis tag classification is incorrect'
 }
 
+bp_valid_docroot . || fail 'document root validator must accept project root marker'
+for docroot in public web public_html app/public; do
+  bp_valid_docroot "$docroot" || fail "document root validator rejected: $docroot"
+done
+ok 'document root validator accepts project root marker and standard paths'
+
+bp_host_port_in_use() { [[ "$1" == 43000 ]]; }
+[[ "$(bp_find_available_host_port)" == 43001 ]] || fail 'occupied default host DB port must advance to the next port'
+source "$ROOT/lib/input.sh"
+ok 'host DB port finder starts at 43000 and skips occupied ports'
+
 # The generator has no mandatory host-tool preflight dependency.
 assert_redis_capability_matrix
 preflight_target="$WORK/preflight"
-printf '%s\n' preflight-app public 8.4 apache-fpm mariadb 11.8 '' '' y n '' n y y n y y | env PATH="/usr/bin:/bin" "$GENERATOR" --dry-run "$preflight_target" >"$WORK/preflight.out"
+printf '%s\n' preflight-app public 8.4 apache-fpm mariadb 11.8 y '' '' y n '' n y y n y y | env PATH="/usr/bin:/bin" "$GENERATOR" --dry-run "$preflight_target" >"$WORK/preflight.out"
 assert_contains "$WORK/preflight.out" 'DDEV Blueprint dry run completed'
 assert_contains "$WORK/preflight.out" 'No files were written.'
 ok 'generation works without optional host tools'
 
 default_target="$WORK/default"; answers_default default-app | run_generator "$default_target" "$WORK/default.out"
+grep -Fxq 'docroot: public' "$default_target/.ddev/config.yaml" || fail 'default document root must render unchanged'
+grep -Fxq 'host_db_port: "43000"' "$default_target/.ddev/config.yaml" || fail 'default fixed host DB port must render as 43000'
+assert_contains "$WORK/default.out" 'Use fixed host database port for HeidiSQL/DBeaver? [Y/n]:'
+assert_contains "$WORK/default.out" 'Host database port [43000]:'
 assert_contains "$default_target/.ddev/config.yaml" '  - make'
 assert_contains "$default_target/.ddev/config.yaml" '  - ripgrep'
 assert_contains "$default_target/.ddev/config.yaml" '  - jq'
@@ -111,6 +133,35 @@ assert_contains "$default_target/.ddev/config.yaml" "php\${DDEV_PHP_VERSION}-gd"
 validate_yaml "$default_target"
 ok 'default developer tooling, PHP settings, generated files, summary and YAML'
 
+occupied_port_target="$WORK/occupied-port"
+answers_default occupied-port | env BP_TEST_OCCUPIED_PORT=43000 PATH="$FAKE_BIN:$PATH" "$GENERATOR" "$occupied_port_target" >"$WORK/occupied-port.out"
+assert_contains "$WORK/occupied-port.out" 'Host database port [43001]:'
+grep -Fxq 'host_db_port: "43001"' "$occupied_port_target/.ddev/config.yaml" || fail 'occupied default host DB port must use the next available port'
+ok 'interactive fixed host DB port skips an occupied port'
+
+manual_port_target="$WORK/manual-port"
+printf '%s\n' manual-port public 8.4 apache-fpm mariadb 11.8 y 43042 '' n n none n n n n n | run_generator "$manual_port_target" "$WORK/manual-port.out"
+grep -Fxq 'host_db_port: "43042"' "$manual_port_target/.ddev/config.yaml" || fail 'manually selected host DB port must render unchanged'
+ok 'interactive fixed host DB port accepts a manual valid port'
+
+invalid_port_target="$WORK/invalid-port"
+if printf '%s\n' invalid-port public 8.4 apache-fpm mariadb 11.8 y 65536 43042 '' n n none n n n n n | env PATH="$FAKE_BIN:$PATH" "$GENERATOR" "$invalid_port_target" >"$WORK/invalid-port.out" 2>&1; then :; else fail 'interactive host DB port retry must succeed after a valid port'; fi
+assert_contains "$WORK/invalid-port.out" 'Invalid value. Please try again.'
+grep -Fxq 'host_db_port: "43042"' "$invalid_port_target/.ddev/config.yaml" || fail 'valid retry host DB port must render unchanged'
+ok 'interactive fixed host DB port rejects values above 65535'
+
+interactive_default_docroot_target="$WORK/interactive-default-docroot"
+answers_none_docroot interactive-default-docroot '' | run_generator "$interactive_default_docroot_target" "$WORK/interactive-default-docroot.out"
+assert_contains "$WORK/interactive-default-docroot.out" 'Document root [public]:'
+grep -Fxq 'docroot: public' "$interactive_default_docroot_target/.ddev/config.yaml" || fail 'empty interactive document root must use public'
+ok 'interactive document root defaults to public'
+
+interactive_root_target="$WORK/interactive-root"
+answers_none_docroot interactive-root . | run_generator "$interactive_root_target" "$WORK/interactive-root.out"
+grep -Fxq 'docroot: ""' "$interactive_root_target/.ddev/config.yaml" || fail 'interactive project root must render as an empty YAML string'
+if grep -Fxq 'docroot: .' "$interactive_root_target/.ddev/config.yaml"; then fail 'interactive project root must not render as dot'; fi
+ok 'interactive document root marker serves the project root'
+
 no_tools_target="$WORK/no-tools"
 {
   printf '%s\n' no-tools public 8.4 apache-fpm none "" n n none n n n n n
@@ -119,6 +170,8 @@ assert_absent "$no_tools_target/.ddev/php/99-development.ini"
 if grep -Fq 'ripgrep' "$no_tools_target/.ddev/config.yaml"; then fail 'tools=no must not add tool packages'; fi
 assert_absent "$no_tools_target/Makefile"; assert_absent "$no_tools_target/.editorconfig"; assert_absent "$no_tools_target/.env.local.example"
 assert_contains "$WORK/no-tools.out" 'OPcache ............ disabled'
+assert_not_contains "$WORK/no-tools.out" 'Use fixed host database port'
+assert_not_contains "$no_tools_target/.ddev/config.yaml" 'host_db_port:'
 ok 'developer tools and optional generated files can be disabled'
 
 no_host_make_target="$WORK/no-host-make"
@@ -166,13 +219,13 @@ assert_absent "$invalid_extensions_target"
 ok 'unknown PHP extension is rejected'
 
 mysql_extensions_target="$WORK/mysql-extensions"
-printf '%s\n' mysql-extensions public 8.4 apache-fpm mysql 8.4 "" "" n n none n n n n n | run_generator "$mysql_extensions_target" "$WORK/mysql-extensions.out"
+printf '%s\n' mysql-extensions public 8.4 apache-fpm mysql 8.4 n "" n n none n n n n n | run_generator "$mysql_extensions_target" "$WORK/mysql-extensions.out"
 assert_contains "$WORK/mysql-extensions.out" 'mysqli, pdo_mysql'
 if grep -Fq "php\${DDEV_PHP_VERSION}-mysqli" "$mysql_extensions_target/.ddev/config.yaml"; then fail 'MySQL drivers must not be manually packaged'; fi
 ok 'MySQL database extensions are automatic'
 
 postgres_extensions_target="$WORK/postgres-extensions"
-printf '%s\n' postgres-extensions public 8.4 apache-fpm postgres 17 "" "" n n none n n n n n | run_generator "$postgres_extensions_target" "$WORK/postgres-extensions.out"
+printf '%s\n' postgres-extensions public 8.4 apache-fpm postgres 17 n "" n n none n n n n n | run_generator "$postgres_extensions_target" "$WORK/postgres-extensions.out"
 assert_contains "$WORK/postgres-extensions.out" 'pgsql, pdo_pgsql'
 if grep -Fq "php\${DDEV_PHP_VERSION}-pgsql" "$postgres_extensions_target/.ddev/config.yaml"; then fail 'PostgreSQL drivers must not be manually packaged'; fi
 ok 'PostgreSQL database extensions are automatic'
@@ -230,6 +283,24 @@ assert_absent "$answers_target/.ddev/docker-compose.otel.yaml"
 validate_yaml "$answers_target"
 ok 'complete answers file and every declared DB version are non-interactive and valid'
 
+answers_port_file="$WORK/answers-port.yaml"
+sed 's/host_port: null/host_port: 43000/' "$answers_file" > "$answers_port_file"
+answers_port_target="$WORK/answers-port"
+env PATH="$FAKE_BIN:$PATH" "$GENERATOR" --answers "$answers_port_file" "$answers_port_target" >"$WORK/answers-port.out"
+grep -Fxq 'host_db_port: "43000"' "$answers_port_target/.ddev/config.yaml" || fail 'answers fixed host DB port must render'
+ok 'answers support a fixed host DB port'
+
+if grep -Fq 'host_db_port:' "$answers_target/.ddev/config.yaml"; then fail 'answers null host DB port must not render'; fi
+ok 'answers null host DB port keeps DDEV dynamic mapping'
+
+answers_root_file="$WORK/answers-root.yaml"
+sed 's/docroot: public/docroot: "."/' "$answers_file" > "$answers_root_file"
+answers_root_target="$WORK/answers-root"
+env PATH="$FAKE_BIN:$PATH" "$GENERATOR" --answers "$answers_root_file" "$answers_root_target" >"$WORK/answers-root.out"
+grep -Fxq 'docroot: ""' "$answers_root_target/.ddev/config.yaml" || fail 'answers project root must render as an empty YAML string'
+if grep -Fxq 'docroot: .' "$answers_root_target/.ddev/config.yaml"; then fail 'answers project root must not render as dot'; fi
+ok 'answers document root marker serves the project root'
+
 if env BASH_ENV="$NO_MAKE_ENV" PATH="$FAKE_BIN:$PATH" "$GENERATOR" --answers "$answers_file" "$WORK/answers-no-host-make" >"$WORK/answers-no-host-make.out" 2>&1; then fail 'answers makefile=true must fail without host make'; fi
 assert_contains "$WORK/answers-no-host-make.out" "development.makefile=true requires host command \`make\`"
 ok 'answers makefile=true fails without host make'
@@ -247,7 +318,7 @@ assert_absent "$WORK/answers-no-host-make-dry"
 ok 'answers dry-run consistently requires host make'
 
 interactive_equivalent="$WORK/interactive-equivalent"
-printf '%s\n' my-app public 8.4 apache-fpm mariadb 11.8 '' 'docs,api.example.test' y y 7.4-alpine 'intl,gd,redis' n y y y y | run_generator "$interactive_equivalent" "$WORK/interactive-equivalent.out"
+printf '%s\n' my-app public 8.4 apache-fpm mariadb 11.8 n 'docs,api.example.test' y y 7.4-alpine 'intl,gd,redis' n y y y y | run_generator "$interactive_equivalent" "$WORK/interactive-equivalent.out"
 cmp "$answers_target/.ddev/config.yaml" "$interactive_equivalent/.ddev/config.yaml" >/dev/null || fail 'answers config must match equivalent interactive input'
 ok 'answers and interactive modes share generated configuration'
 

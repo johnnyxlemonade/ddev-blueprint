@@ -60,7 +60,7 @@ target; without it, only that target is skipped.
 The generator asks for:
 
 - Project name, document root, PHP version, web server, database, optional
-  database port, and hostnames/FQDNs.
+  fixed host database port, and hostnames/FQDNs.
 - Standard development tools in the web image: make, ripgrep, and jq. Default:
   enabled.
 - Optional Redis service and image tag.
@@ -75,6 +75,21 @@ The generator asks for:
 Database extensions are automatic, not selectable: MariaDB/MySQL add `mysqli`
 and `pdo_mysql`; PostgreSQL adds `pgsql` and `pdo_pgsql`; a project without a
 database gets none.
+
+The document root defaults to `public`. Enter `.` to serve the project root;
+the generated DDEV configuration represents this as `docroot: ""`.
+
+### Fixed host database port
+
+For a stable connection from HeidiSQL, DBeaver, or another host-OS client, the
+interactive flow offers a fixed `host_db_port` for every project with a
+database. It defaults to enabled and proposes the first available port from
+`43000` upwards. You can change the proposed port or decline the fixed port to
+keep DDEV's dynamic mapping. Two running projects must not use the same host
+port.
+
+In an answers file, set `database.host_port: 43000` to select a fixed port, or
+leave it as `null` to retain DDEV's dynamic mapping.
 
 ## Supported configuration
 
@@ -256,9 +271,12 @@ php: { extensions: [intl, gd], development_settings: true }
 development: { tools: true, makefile: true, editorconfig: true, env_example: true }
 ```
 
-`database.version` and `database.host_port` may be `null` when `database.type`
-is `none`. A Redis image is required when Redis is enabled and must use the
+`database.version` may be `null` when `database.type` is `none`.
+`database.host_port` may be `null`; a `null` value disables the fixed host
+port. A Redis image is required when Redis is enabled and must use the
 `redis:<tag>` form; `default` resolves to the generator's default Redis tag.
+`project.docroot` defaults to `public`; set it to `"."` to serve the project
+root.
 
 Answers files are configuration, not secret stores: never put passwords,
 tokens, or production credentials in them.
