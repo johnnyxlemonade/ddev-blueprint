@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.3.0 - 2026-09-17
+
+- Added project-root document root support: enter `.` interactively or set `project.docroot: "."` in answers to render DDEV's explicit empty `docroot: ""` value.
+- Added opt-in-by-default stable host database port selection for HeidiSQL, DBeaver, and other host clients, starting from the first available port at `43000`.
+
 ## 0.2.0 - 2026-09-12
 
 - Modularized `init-project.sh` into focused `lib/` modules while preserving the public CLI and answers schema.

@@ -262,7 +262,7 @@ assert_contains "$WORK/dry.out" 'Makefile'
 assert_contains "$WORK/dry.out" '.editorconfig'
 ok 'dry-run writes nothing and reports the plan'
 
-[[ "$("$GENERATOR" --version)" == "0.2.0" ]] || fail 'version output is incorrect'
+[[ "$("$GENERATOR" --version)" == "0.3.0" ]] || fail 'version output is incorrect'
 "$GENERATOR" --help >"$WORK/help.out"
 assert_contains "$WORK/help.out" 'Supported PHP: 8.0, 8.1, 8.2, 8.3, 8.4, 8.5 (default: 8.4).'
 assert_contains "$WORK/help.out" '--answers FILE'
